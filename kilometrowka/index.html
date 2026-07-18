@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Kilometrówka">
+<meta name="theme-color" content="#0f172a">
+<title>Kilometrówka</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230f172a'/%3E%3Ctext x='50' y='64' font-size='54' text-anchor='middle'%3E%F0%9F%9A%97%3C/text%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0f172a; --card:#1e293b; --card2:#273449; --text:#f1f5f9; --muted:#94a3b8;
+    --accent:#22c55e; --accent2:#16a34a; --danger:#ef4444; --border:#334155;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;}
+  body{padding-bottom:90px;}
+  header{position:sticky;top:0;background:rgba(15,23,42,.9);backdrop-filter:blur(10px);padding:calc(env(safe-area-inset-top) + 14px) 16px 12px;z-index:10;border-bottom:1px solid var(--border);}
+  h1{font-size:20px;margin:0;font-weight:700;}
+  .sub{color:var(--muted);font-size:13px;margin-top:2px;}
+  main{padding:16px;max-width:520px;margin:0 auto;}
+  .card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:14px;border:1px solid var(--border);}
+  .summary{display:flex;gap:10px;}
+  .summary .box{flex:1;background:var(--card2);border-radius:12px;padding:12px;text-align:center;}
+  .summary .box .val{font-size:20px;font-weight:700;}
+  .summary .box .lab{font-size:11px;color:var(--muted);margin-top:2px;}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px;}
+  input,select{width:100%;background:var(--card2);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:12px;font-size:16px;}
+  input:focus,select:focus{outline:none;border-color:var(--accent);}
+  .row{display:flex;gap:10px;}
+  .row > div{flex:1;}
+  button{border:none;border-radius:12px;padding:13px;font-size:16px;font-weight:600;cursor:pointer;}
+  .btn-primary{background:var(--accent);color:#04240f;width:100%;margin-top:14px;}
+  .btn-primary:active{background:var(--accent2);}
+  .btn-secondary{background:var(--card2);color:var(--text);border:1px solid var(--border);}
+  .btn-danger{background:transparent;color:var(--danger);border:1px solid var(--danger);}
+  .mode-toggle{display:flex;background:var(--card2);border-radius:12px;padding:4px;margin-bottom:10px;}
+  .mode-toggle button{flex:1;background:transparent;color:var(--muted);padding:9px;}
+  .mode-toggle button.active{background:var(--accent);color:#04240f;}
+  .trip{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border);}
+  .trip:last-child{border-bottom:none;}
+  .trip .left{flex:1;}
+  .trip .desc{font-weight:600;font-size:15px;}
+  .trip .meta{font-size:12px;color:var(--muted);margin-top:2px;}
+  .trip .right{text-align:right;}
+  .trip .amount{font-weight:700;color:var(--accent);font-size:15px;}
+  .trip .del{color:var(--danger);font-size:12px;margin-top:4px;background:none;border:none;padding:0;}
+  .empty{text-align:center;color:var(--muted);padding:30px 0;font-size:14px;}
+  .section-title{font-size:14px;font-weight:700;margin-bottom:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+  .export-row{display:flex;gap:10px;margin-top:10px;}
+  .export-row button{flex:1;}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:50;}
+  .toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<header>
+  <h1>🚗 Kilometrówka</h1>
+  <div class="sub">Rozliczanie kursów za przewóz osób</div>
+</header>
+
+<main>
+  <div class="card summary">
+    <div class="box"><div class="val" id="sumKm">0</div><div class="lab">km łącznie</div></div>
+    <div class="box"><div class="val" id="sumKwota">0</div><div class="lab">do zapłaty</div></div>
+    <div class="box"><div class="val" id="sumLiczba">0</div><div class="lab">kursów</div></div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Nowy kurs</div>
+    <div class="mode-toggle">
+      <button id="modeDistBtn" class="active">Podaj km</button>
+      <button id="modeOdoBtn">Licznik start/koniec</button>
+    </div>
+
+    <div id="distMode">
+      <label>Skąd (opcjonalnie)</label>
+      <input type="text" id="addrFrom" placeholder="np. Kraków, Rynek Główny">
+      <label>Dokąd (opcjonalnie)</label>
+      <input type="text" id="addrTo" placeholder="np. Kraków, Lotnisko Balice">
+      <button type="button" class="btn-secondary" id="checkRouteBtn" style="width:100%;margin-top:8px;">📍 Sprawdź trasę w Mapach</button>
+      <label style="margin-top:14px;">Liczba kilometrów</label>
+      <input type="number" inputmode="decimal" id="distKm" placeholder="np. 12.5">
+    </div>
+
+    <div id="odoMode" style="display:none;">
+      <div class="row">
+        <div>
+          <label>Licznik - start</label>
+          <input type="number" inputmode="decimal" id="odoStart" placeholder="np. 45210">
+        </div>
+        <div>
+          <label>Licznik - koniec</label>
+          <input type="number" inputmode="decimal" id="odoEnd" placeholder="np. 45223">
+        </div>
+      </div>
+    </div>
+
+    <label>Opis (opcjonalnie)</label>
+    <input type="text" id="desc" placeholder="np. Jan Kowalski - lotnisko">
+
+    <div class="row">
+      <div>
+        <label>Waluta</label>
+        <select id="currencySelect">
+          <option value="PLN">PLN (zł)</option>
+          <option value="EUR">EUR (€)</option>
+        </select>
+      </div>
+      <div>
+        <label>Stawka za km</label>
+        <input type="number" inputmode="decimal" step="0.01" id="rateInput">
+      </div>
+    </div>
+
+    <button class="btn-primary" id="addBtn">Dodaj kurs</button>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Historia kursów</div>
+    <div id="tripList"></div>
+    <div class="export-row">
+      <button class="btn-secondary" id="exportBtn">Eksport CSV</button>
+      <button class="btn-secondary" id="exportPdfBtn">Eksport PDF</button>
+    </div>
+    <div class="export-row">
+      <button class="btn-danger" id="clearBtn">Wyczyść wszystko</button>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const STORAGE_KEY = 'kilometrowka_trips';
+const RATE_KEY_PREFIX = 'kilometrowka_rate_';
+const CURRENCY_KEY = 'kilometrowka_currency';
+const DEFAULT_RATES = { PLN: 1.15, EUR: 0.30 };
+const CURRENCY_SYMBOL = { PLN: 'zł', EUR: '€' };
+
+let trips = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+let currency = localStorage.getItem(CURRENCY_KEY) || 'PLN';
+let rates = {
+  PLN: parseFloat(localStorage.getItem(RATE_KEY_PREFIX + 'PLN')) || DEFAULT_RATES.PLN,
+  EUR: parseFloat(localStorage.getItem(RATE_KEY_PREFIX + 'EUR')) || DEFAULT_RATES.EUR
+};
+let mode = 'dist';
+
+const rateInput = document.getElementById('rateInput');
+const currencySelect = document.getElementById('currencySelect');
+currencySelect.value = currency;
+rateInput.value = rates[currency];
+
+currencySelect.addEventListener('change', () => {
+  currency = currencySelect.value;
+  localStorage.setItem(CURRENCY_KEY, currency);
+  rateInput.value = rates[currency];
+});
+
+rateInput.addEventListener('change', () => {
+  const v = parseFloat(rateInput.value);
+  if (!isNaN(v) && v > 0) {
+    rates[currency] = v;
+    localStorage.setItem(RATE_KEY_PREFIX + currency, v);
+    render();
+    showToast('Stawka zapisana: ' + v.toFixed(2) + ' ' + CURRENCY_SYMBOL[currency] + '/km');
+  }
+});
+
+document.getElementById('checkRouteBtn').addEventListener('click', () => {
+  const from = document.getElementById('addrFrom').value.trim();
+  const to = document.getElementById('addrTo').value.trim();
+  if (!to) {
+    showToast('Podaj przynajmniej adres docelowy');
+    return;
+  }
+  const params = new URLSearchParams();
+  if (from) params.set('saddr', from);
+  params.set('daddr', to);
+  params.set('dirflg', 'd');
+  window.open('https://maps.apple.com/?' + params.toString(), '_blank');
+});
+
+document.getElementById('modeDistBtn').addEventListener('click', () => setMode('dist'));
+document.getElementById('modeOdoBtn').addEventListener('click', () => setMode('odo'));
+
+function setMode(m){
+  mode = m;
+  document.getElementById('modeDistBtn').classList.toggle('active', m==='dist');
+  document.getElementById('modeOdoBtn').classList.toggle('active', m==='odo');
+  document.getElementById('distMode').style.display = m==='dist' ? 'block' : 'none';
+  document.getElementById('odoMode').style.display = m==='odo' ? 'block' : 'none';
+}
+
+document.getElementById('addBtn').addEventListener('click', () => {
+  let km;
+  if (mode === 'dist') {
+    km = parseFloat(document.getElementById('distKm').value);
+  } else {
+    const start = parseFloat(document.getElementById('odoStart').value);
+    const end = parseFloat(document.getElementById('odoEnd').value);
+    km = end - start;
+  }
+  if (isNaN(km) || km <= 0) {
+    showToast('Podaj poprawną liczbę kilometrów');
+    return;
+  }
+  let desc = document.getElementById('desc').value.trim();
+  if (!desc && mode === 'dist') {
+    const from = document.getElementById('addrFrom').value.trim();
+    const to = document.getElementById('addrTo').value.trim();
+    if (from && to) desc = from + ' → ' + to;
+    else if (to) desc = to;
+  }
+  const trip = {
+    id: Date.now(),
+    date: new Date().toISOString(),
+    km: Math.round(km * 100) / 100,
+    rate: rates[currency],
+    currency: currency,
+    desc: desc
+  };
+  trips.unshift(trip);
+  save();
+  render();
+  clearForm();
+  showToast('Dodano kurs: ' + trip.km + ' km');
+});
+
+function clearForm(){
+  document.getElementById('distKm').value = '';
+  document.getElementById('odoStart').value = '';
+  document.getElementById('odoEnd').value = '';
+  document.getElementById('desc').value = '';
+  document.getElementById('addrFrom').value = '';
+  document.getElementById('addrTo').value = '';
+}
+
+function save(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(trips));
+}
+
+function deleteTrip(id){
+  trips = trips.filter(t => t.id !== id);
+  save();
+  render();
+}
+
+function fmtDate(iso){
+  const d = new Date(iso);
+  return d.toLocaleDateString('pl-PL', {day:'2-digit', month:'2-digit', year:'numeric'}) + ' ' +
+         d.toLocaleTimeString('pl-PL', {hour:'2-digit', minute:'2-digit'});
+}
+
+function tripCurrency(t){ return t.currency || 'PLN'; }
+function symbolFor(cur){ return CURRENCY_SYMBOL[cur] || cur; }
+
+function render(){
+  const list = document.getElementById('tripList');
+  if (trips.length === 0) {
+    list.innerHTML = '<div class="empty">Brak kursów. Dodaj pierwszy powyżej.</div>';
+  } else {
+    list.innerHTML = trips.map(t => {
+      const cur = tripCurrency(t);
+      const amount = (t.km * t.rate).toFixed(2);
+      return `<div class="trip">
+        <div class="left">
+          <div class="desc">${t.desc || 'Kurs'} — ${t.km} km</div>
+          <div class="meta">${fmtDate(t.date)} · ${t.rate.toFixed(2)} ${symbolFor(cur)}/km</div>
+        </div>
+        <div class="right">
+          <div class="amount">${amount} ${symbolFor(cur)}</div>
+          <button class="del" onclick="deleteTrip(${t.id})">Usuń</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  const totalKm = trips.reduce((s,t) => s + t.km, 0);
+  const totalsByCurrency = {};
+  trips.forEach(t => {
+    const cur = tripCurrency(t);
+    totalsByCurrency[cur] = (totalsByCurrency[cur] || 0) + t.km * t.rate;
+  });
+  const kwotaText = Object.keys(totalsByCurrency).length === 0
+    ? '0'
+    : Object.entries(totalsByCurrency).map(([cur, amt]) => amt.toFixed(2) + ' ' + symbolFor(cur)).join(' + ');
+
+  document.getElementById('sumKm').textContent = totalKm.toFixed(1);
+  document.getElementById('sumKwota').textContent = kwotaText;
+  document.getElementById('sumLiczba').textContent = trips.length;
+}
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  if (trips.length === 0) { showToast('Brak danych do eksportu'); return; }
+  let csv = 'Data;Opis;Km;Waluta;Stawka;Kwota\n';
+  trips.slice().reverse().forEach(t => {
+    const cur = tripCurrency(t);
+    const amount = (t.km * t.rate).toFixed(2);
+    csv += `${fmtDate(t.date)};${(t.desc||'').replace(/;/g,',')};${t.km};${cur};${t.rate.toFixed(2)};${amount}\n`;
+  });
+  const blob = new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'kilometrowka_' + new Date().toISOString().slice(0,10) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('exportPdfBtn').addEventListener('click', () => {
+  if (trips.length === 0) { showToast('Brak danych do eksportu'); return; }
+
+  const totalsByCurrency = {};
+  trips.forEach(t => {
+    const cur = tripCurrency(t);
+    totalsByCurrency[cur] = (totalsByCurrency[cur] || 0) + t.km * t.rate;
+  });
+  const totalKm = trips.reduce((s,t) => s + t.km, 0);
+
+  const rows = trips.slice().reverse().map(t => {
+    const cur = tripCurrency(t);
+    const amount = (t.km * t.rate).toFixed(2);
+    return `<tr>
+      <td>${fmtDate(t.date)}</td>
+      <td>${(t.desc || 'Kurs').replace(/</g,'&lt;')}</td>
+      <td style="text-align:right">${t.km}</td>
+      <td style="text-align:right">${t.rate.toFixed(2)} ${symbolFor(cur)}</td>
+      <td style="text-align:right">${amount} ${symbolFor(cur)}</td>
+    </tr>`;
+  }).join('');
+
+  const totalsHtml = Object.entries(totalsByCurrency)
+    .map(([cur, amt]) => `<div>${amt.toFixed(2)} ${symbolFor(cur)}</div>`).join('');
+
+  const html = `<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8">
+<title>Kilometrówka - raport</title>
+<style>
+  body{font-family:-apple-system,Arial,sans-serif;color:#111;margin:24px;}
+  h1{font-size:20px;margin-bottom:2px;}
+  .sub{color:#555;font-size:12px;margin-bottom:20px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;border-bottom:2px solid #333;padding:6px 8px;font-size:12px;text-transform:uppercase;color:#444;}
+  td{padding:6px 8px;border-bottom:1px solid #ddd;}
+  .totals{margin-top:20px;padding-top:14px;border-top:2px solid #333;text-align:right;}
+  .totals .row{display:flex;justify-content:flex-end;gap:16px;font-size:14px;margin-bottom:4px;}
+  .totals .label{color:#555;}
+  .totals .grand{font-size:18px;font-weight:700;margin-top:6px;}
+  @media print{ body{margin:10mm;} }
+</style></head>
+<body>
+  <h1>Kilometrówka — raport kursów</h1>
+  <div class="sub">Wygenerowano: ${fmtDate(new Date().toISOString())} · Liczba kursów: ${trips.length} · Suma km: ${totalKm.toFixed(1)}</div>
+  <table>
+    <thead><tr><th>Data</th><th>Opis</th><th style="text-align:right">Km</th><th style="text-align:right">Stawka</th><th style="text-align:right">Kwota</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="totals">
+    <div class="row"><span class="label">Suma km:</span><span>${totalKm.toFixed(1)}</span></div>
+    <div class="grand">${totalsHtml}</div>
+  </div>
+  <script>window.onload = () => setTimeout(() => window.print(), 250);<\/script>
+</body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Zablokowano okno — zezwól na wyskakujące okienka'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+  if (confirm('Na pewno usunąć wszystkie kursy? Tej operacji nie można cofnąć.')) {
+    trips = [];
+    save();
+    render();
+    showToast('Wyczyszczono historię');
+  }
+});
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+render();
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
