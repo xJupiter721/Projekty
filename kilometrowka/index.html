@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#0f172a">
 <title>Kilometrówka</title>
 <link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230f172a'/%3E%3Ctext x='50' y='64' font-size='54' text-anchor='middle'%3E%F0%9F%9A%97%3C/text%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icon.png">
 <style>
   :root{
     --bg:#0f172a; --card:#1e293b; --card2:#273449; --text:#f1f5f9; --muted:#94a3b8;
@@ -47,7 +47,13 @@
   .trip .meta{font-size:12px;color:var(--muted);margin-top:2px;}
   .trip .right{text-align:right;}
   .trip .amount{font-weight:700;color:var(--accent);font-size:15px;}
-  .trip .del{color:var(--danger);font-size:12px;margin-top:4px;background:none;border:none;padding:0;}
+  .trip .actions{display:flex;gap:10px;margin-top:4px;justify-content:flex-end;}
+  .trip .del{color:var(--danger);font-size:12px;background:none;border:none;padding:0;}
+  .trip .edit{color:var(--accent);font-size:12px;background:none;border:none;padding:0;}
+  .filter-row{display:flex;gap:10px;margin-bottom:12px;}
+  .filter-row > div{flex:1;}
+  .cancel-edit{background:var(--card2);color:var(--muted);width:100%;margin-top:8px;}
+  .editing-banner{background:#3b2f0f;color:#fbbf24;border-radius:10px;padding:8px 12px;font-size:12px;margin-bottom:10px;}
   .empty{text-align:center;color:var(--muted);padding:30px 0;font-size:14px;}
   .section-title{font-size:14px;font-weight:700;margin-bottom:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
   .export-row{display:flex;gap:10px;margin-top:10px;}
@@ -69,7 +75,7 @@
     <div class="box"><div class="val" id="sumLiczba">0</div><div class="lab">kursów</div></div>
   </div>
 
-  <div class="card">
+  <div class="card" id="newTripCard">
     <div class="section-title">Nowy kurs</div>
     <div class="mode-toggle">
       <button id="modeDistBtn" class="active">Podaj km</button>
@@ -77,12 +83,7 @@
     </div>
 
     <div id="distMode">
-      <label>Skąd (opcjonalnie)</label>
-      <input type="text" id="addrFrom" placeholder="np. Kraków, Rynek Główny">
-      <label>Dokąd (opcjonalnie)</label>
-      <input type="text" id="addrTo" placeholder="np. Kraków, Lotnisko Balice">
-      <button type="button" class="btn-secondary" id="checkRouteBtn" style="width:100%;margin-top:8px;">📍 Sprawdź trasę w Mapach</button>
-      <label style="margin-top:14px;">Liczba kilometrów</label>
+      <label>Liczba kilometrów</label>
       <input type="number" inputmode="decimal" id="distKm" placeholder="np. 12.5">
     </div>
 
@@ -116,11 +117,30 @@
       </div>
     </div>
 
+    <div id="editingBanner" class="editing-banner" style="display:none;">Edytujesz istniejący kurs</div>
     <button class="btn-primary" id="addBtn">Dodaj kurs</button>
+    <button class="cancel-edit" id="cancelEditBtn" style="display:none;">Anuluj edycję</button>
   </div>
 
   <div class="card">
     <div class="section-title">Historia kursów</div>
+    <div class="filter-row">
+      <div>
+        <label>Miesiąc</label>
+        <select id="filterMonth"><option value="all">Wszystkie</option></select>
+      </div>
+      <div>
+        <label>Sortuj</label>
+        <select id="sortSelect">
+          <option value="date_desc">Data: najnowsze</option>
+          <option value="date_asc">Data: najstarsze</option>
+          <option value="amount_desc">Kwota: malejąco</option>
+          <option value="amount_asc">Kwota: rosnąco</option>
+          <option value="km_desc">Km: malejąco</option>
+          <option value="km_asc">Km: rosnąco</option>
+        </select>
+      </div>
+    </div>
     <div id="tripList"></div>
     <div class="export-row">
       <button class="btn-secondary" id="exportBtn">Eksport CSV</button>
@@ -148,6 +168,9 @@ let rates = {
   EUR: parseFloat(localStorage.getItem(RATE_KEY_PREFIX + 'EUR')) || DEFAULT_RATES.EUR
 };
 let mode = 'dist';
+let editingId = null;
+let filterMonth = 'all';
+let sortBy = 'date_desc';
 
 const rateInput = document.getElementById('rateInput');
 const currencySelect = document.getElementById('currencySelect');
@@ -168,20 +191,6 @@ rateInput.addEventListener('change', () => {
     render();
     showToast('Stawka zapisana: ' + v.toFixed(2) + ' ' + CURRENCY_SYMBOL[currency] + '/km');
   }
-});
-
-document.getElementById('checkRouteBtn').addEventListener('click', () => {
-  const from = document.getElementById('addrFrom').value.trim();
-  const to = document.getElementById('addrTo').value.trim();
-  if (!to) {
-    showToast('Podaj przynajmniej adres docelowy');
-    return;
-  }
-  const params = new URLSearchParams();
-  if (from) params.set('saddr', from);
-  params.set('daddr', to);
-  params.set('dirflg', 'd');
-  window.open('https://maps.apple.com/?' + params.toString(), '_blank');
 });
 
 document.getElementById('modeDistBtn').addEventListener('click', () => setMode('dist'));
@@ -208,35 +217,73 @@ document.getElementById('addBtn').addEventListener('click', () => {
     showToast('Podaj poprawną liczbę kilometrów');
     return;
   }
-  let desc = document.getElementById('desc').value.trim();
-  if (!desc && mode === 'dist') {
-    const from = document.getElementById('addrFrom').value.trim();
-    const to = document.getElementById('addrTo').value.trim();
-    if (from && to) desc = from + ' → ' + to;
-    else if (to) desc = to;
+  const desc = document.getElementById('desc').value.trim();
+  const rate = parseFloat(rateInput.value) || rates[currency];
+
+  if (editingId !== null) {
+    const t = trips.find(x => x.id === editingId);
+    if (t) {
+      t.km = Math.round(km * 100) / 100;
+      t.rate = rate;
+      t.currency = currency;
+      t.desc = desc;
+    }
+    save();
+    render();
+    exitEditMode();
+    showToast('Zapisano zmiany');
+  } else {
+    const trip = {
+      id: Date.now(),
+      date: new Date().toISOString(),
+      km: Math.round(km * 100) / 100,
+      rate: rate,
+      currency: currency,
+      desc: desc
+    };
+    trips.unshift(trip);
+    save();
+    render();
+    clearForm();
+    showToast('Dodano kurs: ' + trip.km + ' km');
   }
-  const trip = {
-    id: Date.now(),
-    date: new Date().toISOString(),
-    km: Math.round(km * 100) / 100,
-    rate: rates[currency],
-    currency: currency,
-    desc: desc
-  };
-  trips.unshift(trip);
-  save();
-  render();
-  clearForm();
-  showToast('Dodano kurs: ' + trip.km + ' km');
 });
+
+document.getElementById('cancelEditBtn').addEventListener('click', () => {
+  exitEditMode();
+  clearForm();
+  showToast('Anulowano edycję');
+});
+
+function editTrip(id){
+  const t = trips.find(x => x.id === id);
+  if (!t) return;
+  editingId = id;
+  setMode('dist');
+  document.getElementById('distKm').value = t.km;
+  document.getElementById('desc').value = t.desc || '';
+  currency = tripCurrency(t);
+  currencySelect.value = currency;
+  rateInput.value = t.rate;
+  document.getElementById('addBtn').textContent = 'Zapisz zmiany';
+  document.getElementById('cancelEditBtn').style.display = 'block';
+  document.getElementById('editingBanner').style.display = 'block';
+  document.getElementById('newTripCard').scrollIntoView({behavior:'smooth'});
+}
+
+function exitEditMode(){
+  editingId = null;
+  document.getElementById('addBtn').textContent = 'Dodaj kurs';
+  document.getElementById('cancelEditBtn').style.display = 'none';
+  document.getElementById('editingBanner').style.display = 'none';
+  rateInput.value = rates[currency];
+}
 
 function clearForm(){
   document.getElementById('distKm').value = '';
   document.getElementById('odoStart').value = '';
   document.getElementById('odoEnd').value = '';
   document.getElementById('desc').value = '';
-  document.getElementById('addrFrom').value = '';
-  document.getElementById('addrTo').value = '';
 }
 
 function save(){
@@ -257,13 +304,47 @@ function fmtDate(iso){
 
 function tripCurrency(t){ return t.currency || 'PLN'; }
 function symbolFor(cur){ return CURRENCY_SYMBOL[cur] || cur; }
+function monthKey(iso){ return iso.slice(0,7); }
+function monthLabel(key){
+  const [y,m] = key.split('-');
+  const names = ['styczeń','luty','marzec','kwiecień','maj','czerwiec','lipiec','sierpień','wrzesień','październik','listopad','grudzień'];
+  return names[parseInt(m,10)-1] + ' ' + y;
+}
+
+const filterMonthSelect = document.getElementById('filterMonth');
+const sortSelectEl = document.getElementById('sortSelect');
+filterMonthSelect.addEventListener('change', () => { filterMonth = filterMonthSelect.value; render(); });
+sortSelectEl.addEventListener('change', () => { sortBy = sortSelectEl.value; render(); });
+
+function sortTrips(list){
+  const sorted = list.slice();
+  switch (sortBy) {
+    case 'date_asc': sorted.sort((a,b) => new Date(a.date) - new Date(b.date)); break;
+    case 'amount_desc': sorted.sort((a,b) => (b.km*b.rate) - (a.km*a.rate)); break;
+    case 'amount_asc': sorted.sort((a,b) => (a.km*a.rate) - (b.km*b.rate)); break;
+    case 'km_desc': sorted.sort((a,b) => b.km - a.km); break;
+    case 'km_asc': sorted.sort((a,b) => a.km - b.km); break;
+    default: sorted.sort((a,b) => new Date(b.date) - new Date(a.date));
+  }
+  return sorted;
+}
 
 function render(){
+  const months = [...new Set(trips.map(t => monthKey(t.date)))].sort().reverse();
+  const prevValue = filterMonthSelect.value;
+  filterMonthSelect.innerHTML = '<option value="all">Wszystkie</option>' +
+    months.map(m => `<option value="${m}">${monthLabel(m)}</option>`).join('');
+  filterMonthSelect.value = months.includes(prevValue) || prevValue === 'all' ? prevValue : 'all';
+  filterMonth = filterMonthSelect.value;
+
+  let visible = filterMonth === 'all' ? trips : trips.filter(t => monthKey(t.date) === filterMonth);
+  visible = sortTrips(visible);
+
   const list = document.getElementById('tripList');
-  if (trips.length === 0) {
-    list.innerHTML = '<div class="empty">Brak kursów. Dodaj pierwszy powyżej.</div>';
+  if (visible.length === 0) {
+    list.innerHTML = '<div class="empty">Brak kursów w wybranym okresie.</div>';
   } else {
-    list.innerHTML = trips.map(t => {
+    list.innerHTML = visible.map(t => {
       const cur = tripCurrency(t);
       const amount = (t.km * t.rate).toFixed(2);
       return `<div class="trip">
@@ -273,15 +354,18 @@ function render(){
         </div>
         <div class="right">
           <div class="amount">${amount} ${symbolFor(cur)}</div>
-          <button class="del" onclick="deleteTrip(${t.id})">Usuń</button>
+          <div class="actions">
+            <button class="edit" onclick="editTrip(${t.id})">Edytuj</button>
+            <button class="del" onclick="deleteTrip(${t.id})">Usuń</button>
+          </div>
         </div>
       </div>`;
     }).join('');
   }
 
-  const totalKm = trips.reduce((s,t) => s + t.km, 0);
+  const totalKm = visible.reduce((s,t) => s + t.km, 0);
   const totalsByCurrency = {};
-  trips.forEach(t => {
+  visible.forEach(t => {
     const cur = tripCurrency(t);
     totalsByCurrency[cur] = (totalsByCurrency[cur] || 0) + t.km * t.rate;
   });
@@ -291,7 +375,7 @@ function render(){
 
   document.getElementById('sumKm').textContent = totalKm.toFixed(1);
   document.getElementById('sumKwota').textContent = kwotaText;
-  document.getElementById('sumLiczba').textContent = trips.length;
+  document.getElementById('sumLiczba').textContent = visible.length;
 }
 
 document.getElementById('exportBtn').addEventListener('click', () => {
@@ -323,16 +407,41 @@ document.getElementById('exportPdfBtn').addEventListener('click', () => {
   });
   const totalKm = trips.reduce((s,t) => s + t.km, 0);
 
-  const rows = trips.slice().reverse().map(t => {
-    const cur = tripCurrency(t);
-    const amount = (t.km * t.rate).toFixed(2);
-    return `<tr>
-      <td>${fmtDate(t.date)}</td>
-      <td>${(t.desc || 'Kurs').replace(/</g,'&lt;')}</td>
-      <td style="text-align:right">${t.km}</td>
-      <td style="text-align:right">${t.rate.toFixed(2)} ${symbolFor(cur)}</td>
-      <td style="text-align:right">${amount} ${symbolFor(cur)}</td>
-    </tr>`;
+  const byMonth = {};
+  trips.forEach(t => {
+    const key = monthKey(t.date);
+    (byMonth[key] = byMonth[key] || []).push(t);
+  });
+  const monthKeys = Object.keys(byMonth).sort().reverse();
+
+  const sectionsHtml = monthKeys.map(key => {
+    const monthTrips = byMonth[key].slice().sort((a,b) => new Date(b.date) - new Date(a.date));
+    const monthKm = monthTrips.reduce((s,t) => s + t.km, 0);
+    const monthTotals = {};
+    monthTrips.forEach(t => {
+      const cur = tripCurrency(t);
+      monthTotals[cur] = (monthTotals[cur] || 0) + t.km * t.rate;
+    });
+    const monthTotalsText = Object.entries(monthTotals).map(([cur,amt]) => amt.toFixed(2) + ' ' + symbolFor(cur)).join(' + ');
+
+    const rows = monthTrips.map(t => {
+      const cur = tripCurrency(t);
+      const amount = (t.km * t.rate).toFixed(2);
+      return `<tr>
+        <td>${fmtDate(t.date)}</td>
+        <td>${(t.desc || 'Kurs').replace(/</g,'&lt;')}</td>
+        <td style="text-align:right">${t.km}</td>
+        <td style="text-align:right">${t.rate.toFixed(2)} ${symbolFor(cur)}</td>
+        <td style="text-align:right">${amount} ${symbolFor(cur)}</td>
+      </tr>`;
+    }).join('');
+
+    return `<h2>${monthLabel(key)}</h2>
+    <table>
+      <thead><tr><th>Data</th><th>Opis</th><th style="text-align:right">Km</th><th style="text-align:right">Stawka</th><th style="text-align:right">Kwota</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="month-total">Suma za ${monthLabel(key)}: ${monthKm.toFixed(1)} km · ${monthTotalsText}</div>`;
   }).join('');
 
   const totalsHtml = Object.entries(totalsByCurrency)
@@ -343,25 +452,25 @@ document.getElementById('exportPdfBtn').addEventListener('click', () => {
 <style>
   body{font-family:-apple-system,Arial,sans-serif;color:#111;margin:24px;}
   h1{font-size:20px;margin-bottom:2px;}
+  h2{font-size:15px;margin:24px 0 8px;text-transform:capitalize;border-bottom:1px solid #ccc;padding-bottom:4px;}
+  h2:first-of-type{margin-top:16px;}
   .sub{color:#555;font-size:12px;margin-bottom:20px;}
   table{width:100%;border-collapse:collapse;font-size:13px;}
   th{text-align:left;border-bottom:2px solid #333;padding:6px 8px;font-size:12px;text-transform:uppercase;color:#444;}
   td{padding:6px 8px;border-bottom:1px solid #ddd;}
-  .totals{margin-top:20px;padding-top:14px;border-top:2px solid #333;text-align:right;}
+  .month-total{text-align:right;font-size:12px;color:#333;font-weight:600;margin-top:6px;}
+  .totals{margin-top:24px;padding-top:14px;border-top:2px solid #333;text-align:right;}
   .totals .row{display:flex;justify-content:flex-end;gap:16px;font-size:14px;margin-bottom:4px;}
   .totals .label{color:#555;}
   .totals .grand{font-size:18px;font-weight:700;margin-top:6px;}
-  @media print{ body{margin:10mm;} }
+  @media print{ body{margin:10mm;} h2{page-break-after:avoid;} tr{page-break-inside:avoid;} }
 </style></head>
 <body>
   <h1>Kilometrówka — raport kursów</h1>
   <div class="sub">Wygenerowano: ${fmtDate(new Date().toISOString())} · Liczba kursów: ${trips.length} · Suma km: ${totalKm.toFixed(1)}</div>
-  <table>
-    <thead><tr><th>Data</th><th>Opis</th><th style="text-align:right">Km</th><th style="text-align:right">Stawka</th><th style="text-align:right">Kwota</th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table>
+  ${sectionsHtml}
   <div class="totals">
-    <div class="row"><span class="label">Suma km:</span><span>${totalKm.toFixed(1)}</span></div>
+    <div class="row"><span class="label">Suma km (wszystko):</span><span>${totalKm.toFixed(1)}</span></div>
     <div class="grand">${totalsHtml}</div>
   </div>
   <script>window.onload = () => setTimeout(() => window.print(), 250);<\/script>
