@@ -1,4 +1,4 @@
-const CACHE = 'kilometrowka-v2';
+const CACHE = 'kilometrowka-v3';
 const ASSETS = ['./index.html', './manifest.json', './icon.png'];
 
 self.addEventListener('install', e => {
